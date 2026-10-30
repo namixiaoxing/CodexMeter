@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Principal;
 namespace CodexMeter;
 
@@ -13,17 +14,16 @@ internal static class AutoFollow
     {
         get
         {
-            try
+            return ReadEnabled(()=>WithFolder(folder=>
             {
-                if(WithFolder(folder=>
-                {
-                    object? task=null;
-                    try { task=((dynamic)folder).GetTask(TaskName); return (bool)((dynamic)task).Enabled; }
-                    finally { Release(task); }
-                }))return true;
-            }
-            catch(COMException) { }
-            using var key=Registry.CurrentUser.OpenSubKey(Key); return key?.GetValue("CodexMeter") is string;
+                object? task=null;
+                try { task=((dynamic)folder).GetTask(TaskName); return (bool)((dynamic)task).Enabled; }
+                finally { Release(task); }
+            }),()=>
+            {
+                using var key=Registry.CurrentUser.OpenSubKey(Key);
+                return key?.GetValue("CodexMeter") is string;
+            });
         }
         set
         {
@@ -37,14 +37,29 @@ internal static class AutoFollow
                 }
                 else
                 {
-                    try { ((dynamic)folder).DeleteTask(TaskName,0); }
-                    catch(COMException e) when(e.HResult==unchecked((int)0x80070002)) { }
+                    DeleteTaskIfPresent(()=>((dynamic)folder).DeleteTask(TaskName,0));
                 }
                 return true;
             });
             // Remove legacy sign-in registration only after the independent task succeeds.
             using var key=Registry.CurrentUser.OpenSubKey(Key,true); key?.DeleteValue("CodexMeter",false);
         }
+    }
+    // COM interop maps ERROR_FILE_NOT_FOUND to FileNotFoundException on a fresh user profile.
+    // Startup registration is optional; inspecting its state must not prevent the meter from opening.
+    internal static bool ReadEnabled(Func<bool> readTask,Func<bool> readLegacy)
+    {
+        try { if(readTask())return true; }
+        catch(Exception e) when(IsReadFailure(e)) { }
+        try { return readLegacy(); }
+        catch(Exception e) when(IsReadFailure(e)) { return false; }
+    }
+    private static bool IsReadFailure(Exception e)=>e is COMException or IOException or UnauthorizedAccessException or SecurityException;
+
+    internal static void DeleteTaskIfPresent(Action delete)
+    {
+        try { delete(); }
+        catch(Exception e) when((e is COMException or IOException) && e.HResult==unchecked((int)0x80070002)) { }
     }
     public static void Start()=>WithFolder(folder=>
     {

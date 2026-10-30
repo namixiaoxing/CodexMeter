@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>CodexMeter</AssemblyName>
-    <Version>0.5.5</Version>
+    <Version>0.5.9</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
