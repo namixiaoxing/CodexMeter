@@ -7,6 +7,7 @@ internal sealed class HostSupervisor : ApplicationContext
     private readonly string home;
     private bool show;
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 150 };
+    private readonly HostMotionHook motion;
     private MeterContext? meter;
     private DateTime absent;
     private DateTime initializeAt;
@@ -15,6 +16,7 @@ internal sealed class HostSupervisor : ApplicationContext
         this.home = home; this.show = show;
         // Ensure async continuations have a WinForms synchronization context even before a host exists.
         SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());
+        motion=new(surface=>meter?.FollowHost(surface,true),SynchronizationContext.Current!);
         timer.Tick += (_, _) => Tick(); timer.Start(); Tick();
     }
     private void Tick()
@@ -22,7 +24,6 @@ internal sealed class HostSupervisor : ApplicationContext
         var host = HostWindow.Find();
         if (host is not null)
         {
-            timer.Interval=150;
             absent = default;
             if(meter is null)
             {
@@ -31,11 +32,16 @@ internal sealed class HostSupervisor : ApplicationContext
                 meter=new MeterContext(home, show, ExitThread);
                 initializeAt=default;
             }
+            motion.Watch(host);
+            meter.EventFollowing=motion.Active;meter.MotionEvents=motion.Events;meter.MotionUpdates=motion.Updates;
+            meter.FollowRefreshHz=motion.RefreshHz;meter.HighResolutionFollowing=motion.HighResolution;
+            meter.NativeRefreshRate=motion.NativeRefreshRate;
+            timer.Interval=motion.Active?150:16;
             show = false; meter.FollowHost(host);
         }
         else
         {
-            timer.Interval=1000; initializeAt=default;
+            timer.Interval=1000; initializeAt=default;motion.Unwatch();
             if(meter is not null)
             {
                 meter.HideForHost();
@@ -50,7 +56,7 @@ internal sealed class HostSupervisor : ApplicationContext
     }
     protected override void ExitThreadCore()
     {
-        timer.Stop(); timer.Dispose(); meter?.StopMonitoring(); meter?.Dispose(); meter = null;
+        timer.Stop(); timer.Dispose(); motion.Dispose();meter?.StopMonitoring(); meter?.Dispose(); meter = null;
         base.ExitThreadCore();
     }
 }

@@ -29,8 +29,9 @@ internal static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         TraceAttachment = args.Contains("--trace-attachment");
-        if (args.Contains("--preview")) { Preview(home); return; }
-        if (args.Contains("--attachment-check")) { AttachmentCheck(); return; }
+        if (args.Contains("--preview")) { UiDiagnostics.Preview(); return; }
+        if (args.Contains("--attachment-check")) { UiDiagnostics.AttachmentCheck(); return; }
+        if (args.Contains("--follow-benchmark")) { UiDiagnostics.FollowBenchmark(); return; }
         using var singleton = new Mutex(true, "Local\\CodexMeter", out var first);
         if (!first) return;
         if (args.Contains("--host-probe"))
@@ -44,121 +45,6 @@ internal static class Program
         using var app = new HostSupervisor(home, args.Contains("--show"));
         Application.Run(app);
         GC.KeepAlive(singleton);
-    }
-
-    private static void AttachmentCheck()
-    {
-        var actualHost = HostWindow.Find();
-        // Exercise native ownership and exact sizing against a test window, without restoring,
-        // minimizing, moving or otherwise controlling the user's Codex window.
-        using var fixture = new Form { ClientSize = new Size(900, 650), ShowInTaskbar = false };
-        var host = new HostSurface(fixture.Handle, (uint)Environment.ProcessId, new Rectangle(100, 100, 900, 650), true, false, 96);
-        var settings = Settings.Load();
-        using var overlay = new OverlayForm(settings, () => { });
-        overlay.DockTo(host);
-        overlay.Show(); overlay.DockTo(host);
-        var beforePanelResize = HostWindow.ActualBounds(overlay.Handle);
-        settings.ScalePercent = settings.ScalePercent == 67 ? 100 : 67;
-        overlay.DockTo(host);
-        var afterPanelResize = HostWindow.ActualBounds(overlay.Handle);
-        using var panelFixture=new Form { ClientSize=new Size(420,400),ShowInTaskbar=false,StartPosition=FormStartPosition.Manual };
-        HostWindow.Own(panelFixture.Handle,fixture.Handle);
-        HostWindow.Position(panelFixture.Handle,new Rectangle(overlay.Left+20,overlay.Top-100,420,400));
-        HostWindow.ShowPassive(panelFixture.Handle);
-        var focus=HostWindow.ForegroundHandle;
-        HostWindow.KeepBelow(overlay.Handle,panelFixture.Handle);
-        var panelAboveOverlay=HostWindow.ImmediatelyBelow(overlay.Handle,panelFixture.Handle);
-        // Move and resize our fixture only, exercising the same native docking and stacking.
-        foreach(var frame in new[]{new Rectangle(150,120,900,650),new Rectangle(150,120,1050,750),new Rectangle(100,100,900,650)})
-        {
-            HostWindow.Position(fixture.Handle,frame);
-            overlay.DockTo(host with {Client=frame});
-            HostWindow.KeepBelow(overlay.Handle,panelFixture.Handle);
-            panelAboveOverlay&=HostWindow.ImmediatelyBelow(overlay.Handle,panelFixture.Handle);
-        }
-        var focusPreserved=HostWindow.ForegroundHandle==focus;
-        var fullBounds=HostWindow.ActualBounds(overlay.Handle);
-        overlay.SetQuotaOnly(true); overlay.DockTo(host);
-        var quotaBounds=HostWindow.ActualBounds(overlay.Handle);
-        var quotaAnchorPreserved=quotaBounds.Right==fullBounds.Right&&quotaBounds.Bottom==fullBounds.Bottom&&quotaBounds.Height==fullBounds.Height;
-        overlay.SetQuotaOnly(false); overlay.DockTo(host);
-        var fullRestored=HostWindow.ActualBounds(overlay.Handle)==fullBounds;
-        var report = new { expectedHeight = OverlayForm.DesiredSize(host.Dpi).Height, actualHeight = overlay.Height,
-            actualWidth = overlay.Width, attachedWithinClient = host.Client.Contains(overlay.Bounds),
-            hostDpi = host.Dpi, overlayScalePercent = 110, panelScaleDoesNotMoveOverlay = beforePanelResize == afterPanelResize, topmost = overlay.TopMost,
-            rightMargin = host.Client.Right - afterPanelResize.Right, bottomMargin = host.Client.Bottom - afterPanelResize.Bottom,
-            nativeOwnerMatchesHost = HostWindow.OwnerOf(overlay.Handle) == host.Handle,
-            panelAboveOverlayAfterHostMoveAndResize=panelAboveOverlay,stackingPreservesFocus=focusPreserved,
-            quotaOnlyWidth=quotaBounds.Width,quotaModeKeepsRightAndBottom=quotaAnchorPreserved,fullModeRestored=fullRestored,
-            codexDetected = actualHost is not null, codexCurrentlyMinimized = actualHost?.Minimized };
-        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "attachment-check.json"), JsonSerializer.Serialize(report));
-        if(!panelAboveOverlay||!focusPreserved||!quotaAnchorPreserved||!fullRestored)Environment.ExitCode=1;
-    }
-
-    private static void Preview(string home)
-    {
-        using var reader = new SessionReader(home); reader.Poll(null);
-        var estimator=new BudgetMonitor(home); estimator.Poll(reader.SelectedThread,true);
-        foreach (var name in new[] { "white", "dark", "miku" })
-        {
-            Ui.SetTheme(name);
-            var settings = new Settings { Theme = name, ScalePercent = 100 };
-            using var panel = new MeterPanel(settings, () => { }, () => { });
-            _ = panel.Handle;
-            panel.UpdateData(reader.Snapshot, reader.Quota, "跟随当前选中对话", "界面渲染检查 · 本地日志数据",estimator.Snapshot,reader.TurnCount);
-            panel.Show(); Application.DoEvents();
-            using var panelImage = new Bitmap(panel.Width, panel.Height);
-            panel.DrawToBitmap(panelImage, new Rectangle(Point.Empty, panel.Size));
-            panelImage.Save(Path.Combine(AppContext.BaseDirectory, $"panel-preview-{name}.png"));
-            if(name=="white")
-            {
-                foreach(var scale in new[]{67,85})
-                {
-                    settings.ScalePercent=scale; panel.ApplyScale(); Application.DoEvents();
-                    using var scaled=new Bitmap(panel.Width,panel.Height);
-                    panel.DrawToBitmap(scaled,new Rectangle(Point.Empty,panel.Size));
-                    scaled.Save(Path.Combine(AppContext.BaseDirectory,$"panel-preview-white-{scale}.png"));
-                }
-                settings.ScalePercent=100; panel.ApplyScale();
-            }
-            panel.Hide();
-            using var overlay = new OverlayForm(settings, () => { });
-            overlay.PreviewSize(96); overlay.UpdateData(reader.Snapshot, reader.Quota);
-            using var overlayImage = new Bitmap(overlay.Width, overlay.Height);
-            overlay.DrawToBitmap(overlayImage, new Rectangle(Point.Empty, overlay.Size));
-            overlayImage.Save(Path.Combine(AppContext.BaseDirectory, $"overlay-preview-{name}.png"));
-            if(name=="white")
-            {
-                object Measure(bool quotaOnly)
-                {
-                    overlay.SetQuotaOnly(quotaOnly); overlay.PreviewSize(96);
-                    using var frame=new Bitmap(overlay.Width,overlay.Height);
-                    for(var i=0;i<10;i++)overlay.DrawToBitmap(frame,new Rectangle(Point.Empty,overlay.Size));
-                    var watch=Stopwatch.StartNew();
-                    for(var i=0;i<200;i++)overlay.DrawToBitmap(frame,new Rectangle(Point.Empty,overlay.Size));
-                    watch.Stop();
-                    if(quotaOnly)frame.Save(Path.Combine(AppContext.BaseDirectory,"overlay-preview-quota-only.png"));
-                    return new{width=overlay.Width,height=overlay.Height,millisecondsPerDraw=watch.Elapsed.TotalMilliseconds/200};
-                }
-                var full=Measure(false); var compact=Measure(true);
-                File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"overlay-render-cost.json"),JsonSerializer.Serialize(new{full,compact}));
-                overlay.SetQuotaOnly(false); overlay.PreviewSize(96);
-            }
-            if (name == "miku")
-            {
-                overlayImage.Save(Path.Combine(AppContext.BaseDirectory, "overlay-preview.png"));
-                overlay.PreviewSize(144);
-                using var large = new Bitmap(overlay.Width, overlay.Height);
-                overlay.DrawToBitmap(large, new Rectangle(Point.Empty, overlay.Size));
-                large.Save(Path.Combine(AppContext.BaseDirectory, "overlay-preview-150.png"));
-                overlay.PreviewSize(96);
-                var low = new QuotaSnapshot(new(91,300,DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()), new(97,10080,DateTimeOffset.UtcNow.AddDays(1).ToUnixTimeSeconds()),DateTimeOffset.UtcNow,"合成低余量预览");
-                overlay.UpdateData(reader.Snapshot, low);
-                using var danger = new Bitmap(overlay.Width, overlay.Height);
-                overlay.DrawToBitmap(danger, new Rectangle(Point.Empty, overlay.Size));
-                danger.Save(Path.Combine(AppContext.BaseDirectory, "overlay-demo-low.png"));
-            }
-        }
     }
 
     private static async Task Probe(string home, bool online)
@@ -187,6 +73,12 @@ internal static class Program
 
 internal sealed class MeterContext : ApplicationContext
 {
+    internal bool EventFollowing{get;set;}
+    internal long MotionEvents{get;set;}
+    internal long MotionUpdates{get;set;}
+    internal double FollowRefreshHz{get;set;}
+    internal bool HighResolutionFollowing{get;set;}
+    internal bool NativeRefreshRate{get;set;}
     private readonly Settings settings = Settings.Load();
     private readonly SessionReader reader;
     private readonly BudgetMonitor budgetMonitor;
@@ -237,7 +129,7 @@ internal sealed class MeterContext : ApplicationContext
             {
                 settings.ScalePercent = size; settings.Save();
                 foreach (ToolStripMenuItem sibling in sizeMenu.DropDownItems) sibling.Checked = sibling == option;
-                panel.ApplyScale(); Render();
+                panel.AdaptToDesktop(); Render();
             };
             sizeMenu.DropDownItems.Add(option);
         }
@@ -347,31 +239,29 @@ internal sealed class MeterContext : ApplicationContext
         if (host is null || host.Minimized || !host.Visible) return;
         if (!panel.Visible)
         {
-            var area = Screen.FromRectangle(host.Client).WorkingArea;
-            HostWindow.Own(panel.Handle, host.Handle);
-            panel.Location = new(Math.Max(area.Left, area.Right - panel.Width - 16), Math.Max(area.Top, area.Bottom - panel.Height - 16));
+            var area = Screen.FromPoint(Cursor.Position).WorkingArea;
+            panel.AdaptTo(area,(uint)panel.DeviceDpi);
+            panel.TopMost=false;
+            panel.Bounds=WindowLayout.PanelCorner(area,panel.Size,(uint)panel.DeviceDpi);
             panel.Show();
-            HostWindow.Own(panel.Handle, host.Handle);
-            HostWindow.ShowPassive(panel.Handle);
+            panel.AlignToDesktopCorner(area);
         }
         panel.Activate();
     }
-    public void FollowHost(HostSurface surface)
+    public void FollowHost(HostSurface surface,bool positionOnly=false)
     {
         host = surface;
-        if (surface.Minimized || !surface.Visible) { HideForHost(); TraceHost(surface); return; }
+        if (surface.Minimized || !surface.Visible) { HideForHost();if(!positionOnly)TraceHost(surface);return; }
         var active = HostWindow.IsForeground(surface, panel.Handle, overlay.Handle);
         overlay.SetQuotaOnly(currentSelection?.CanShowConversationMetrics(reader.SelectedThread)!=true);
-        var fits = settings.ShowOverlay && overlay.DockTo(surface);
+        var fits = settings.ShowOverlay && overlay.DockTo(surface,!positionOnly);
         if (fits && active)
         {
-            if (!overlay.Visible) { overlay.Show(); overlay.DockTo(surface); HostWindow.ShowPassive(overlay.Handle); }
+            if (!overlay.Visible) { overlay.Show(); overlay.DockTo(surface,!positionOnly); HostWindow.ShowPassive(overlay.Handle); }
         }
         else overlay.Hide();
-        if (active && resumePanel) { resumePanel = false; ShowPanel(); }
-        if(panel.Visible&&overlay.Visible&&panel.Bounds.IntersectsWith(overlay.Bounds))
-            HostWindow.KeepBelow(overlay.Handle,panel.Handle);
-        TraceHost(surface);
+        if (!positionOnly&&active&&resumePanel) { resumePanel=false;ShowPanel(); }
+        if(!positionOnly)TraceHost(surface);
     }
     private void TraceHost(HostSurface surface)
     {
@@ -380,13 +270,18 @@ internal sealed class MeterContext : ApplicationContext
         var report = JsonSerializer.Serialize(new { hostVisible = surface.Visible, hostMinimized = surface.Minimized,
             overlayVisible = overlay.Visible, hostDpi = surface.Dpi, visibleFrame = frame, actualBounds = actual,
             rightMargin = frame.Right - actual.Right, bottomMargin = frame.Bottom - actual.Bottom,
-            ownerMatchesHost = HostWindow.OwnerOf(overlay.Handle) == surface.Handle, alignment=overlay.Alignment, overlayScalePercent = 110, panelScalePercent = settings.ScalePercent });
+            ownerMatchesHost = HostWindow.OwnerOf(overlay.Handle) == surface.Handle, alignment=overlay.Alignment, overlayScale=overlay.DrawingScale,
+            quotaOnly=overlay.QuotaOnly,placementReason=overlay.PlacementReason,composerBounds=overlay.ComposerBounds,
+            panelScalePercent=settings.ScalePercent,panelTopmost=panel.TopMost,panelOwner=HostWindow.OwnerOf(panel.Handle).ToInt64(),panelLayout=panel.LayoutInfo,
+            panelBounds=panel.Bounds,panelVisible=panel.Visible,desktopWorkingArea=Screen.FromRectangle(panel.Bounds).WorkingArea,
+            eventFollowing=EventFollowing,motionEvents=MotionEvents,motionUpdates=MotionUpdates,overlayPaints=overlay.Paints,
+            followRefreshHz=FollowRefreshHz,highResolutionFollowing=HighResolutionFollowing,nativeRefreshRate=NativeRefreshRate });
         if (report != lastTrace) { lastTrace = report; File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "attachment-live.json"), report); }
     }
     public void HideForHost()
     {
         overlay.Hide();
-        if (panel.Visible) { resumePanel = true; panel.Hide(); }
+        panel.Hide();
     }
     public void StopMonitoring() => ExitThreadCore();
     private void OpenBudget()

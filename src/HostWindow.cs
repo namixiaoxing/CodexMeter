@@ -51,6 +51,14 @@ internal static class HostWindow
         known = best.Handle; knownProcess = best.Pid;
         return Read(known, knownProcess);
     }
+    internal static HostSurface? ReadSurface(IntPtr handle,uint expectedProcess)
+    {
+        if(!IsWindow(handle))return null;
+        GetWindowThreadProcessId(handle,out var pid);
+        return pid==expectedProcess?Read(handle,pid):null;
+    }
+    public static Rectangle FrameBounds(IntPtr handle)=>DwmGetWindowAttribute(handle,9,out var frame,Marshal.SizeOf<NativeRect>())==0
+        ? Rectangle.FromLTRB(frame.Left,frame.Top,frame.Right,frame.Bottom):ActualBounds(handle);
     private static HostSurface? Read(IntPtr h, uint pid)
     {
         if (!GetClientRect(h, out var rect)) return null;
@@ -71,22 +79,11 @@ internal static class HostWindow
     public static void Own(IntPtr child, IntPtr host) => SetWindowLongPtr(child, -8, host);
     public static IntPtr OwnerOf(IntPtr child) => GetWindow(child, 4);
     public static void ShowPassive(IntPtr child) => ShowWindow(child, 8);
-    // Place only the passive overlay behind the panel, without activation or global raising.
-    public static void KeepBelow(IntPtr lower,IntPtr upper)
-    {
-        if(GetWindow(lower,3)!=upper)SetWindowPos(lower,upper,0,0,0,0,0x0001|0x0002|0x0010|0x0200);
-    }
-    internal static bool ImmediatelyBelow(IntPtr lower,IntPtr upper)=>GetWindow(lower,3)==upper;
     internal static IntPtr ForegroundHandle=>GetForegroundWindow();
     public static void Position(IntPtr h, Rectangle bounds) => SetWindowPos(h, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0010 | 0x0004 | 0x0200);
+    public static void Move(IntPtr h,Point position)=>SetWindowPos(h,IntPtr.Zero,position.X,position.Y,0,0,0x0001|0x0010|0x0004|0x0200);
     public static Rectangle VisibleBounds(HostSurface host) => Rectangle.Intersect(host.Frame ?? host.Client, Screen.FromHandle(host.Handle).WorkingArea);
     public static Rectangle ActualBounds(IntPtr h) => GetWindowRect(h, out var r) ? Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom) : Rectangle.Empty;
-    internal static bool CanFit(Rectangle visible, Size size, uint dpi) => visible.Width >= size.Width + 2 * (int)Math.Round(12 * dpi / 96f) && visible.Height >= size.Height + 2 * (int)Math.Round(12 * dpi / 96f);
-    internal static Rectangle DockBounds(Rectangle visible, Size size, uint dpi)
-    {
-        var margin = (int)Math.Round(12 * dpi / 96f);
-        return new(visible.Right - size.Width - margin, visible.Bottom - size.Height - margin, size.Width, size.Height);
-    }
     private delegate bool EnumProc(IntPtr h, IntPtr p);
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
