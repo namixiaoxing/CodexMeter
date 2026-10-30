@@ -9,10 +9,13 @@
     <Compile Include="../src/SessionReader.cs" Link="SessionReader.cs"/>
     <Compile Include="../src/ThreadSelection.cs" Link="ThreadSelection.cs"/>
     <Compile Include="../src/StartupTaskXml.cs" Link="StartupTaskXml.cs"/>
+    <Compile Include="../src/AutoFollow.cs" Link="AutoFollow.cs"/>
     <Compile Include="../src/TurnCounter.cs" Link="TurnCounter.cs"/>
     <Compile Include="../src/QuotaClient.cs" Link="QuotaClient.cs"/>
     <Compile Include="../src/VisibleTps.cs" Link="VisibleTps.cs"/>
     <Compile Include="../src/HostWindow.cs" Link="HostWindow.cs"/>
+    <Compile Include="../src/WindowLayout.cs" Link="WindowLayout.cs"/>
+    <Compile Include="../src/DisplayRefresh.cs" Link="DisplayRefresh.cs"/>
     <Compile Include="../src/Theme.cs" Link="Theme.cs"/>
     <Compile Include="../src/BudgetEstimate.cs" Link="BudgetEstimate.cs"/>
     <Compile Include="ParserTests.cs"/>

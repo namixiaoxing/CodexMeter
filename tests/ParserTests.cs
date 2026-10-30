@@ -1,9 +1,35 @@
 using System.Text.Json;
 using CodexMeter;
 using System.Xml.Linq;
+using System.Runtime.InteropServices;
 
 var count = 0;
 void Check(bool ok, string name) { if (!ok) throw new Exception(name); Console.WriteLine("PASS " + name); count++; }
+Check(Math.Abs(DisplayRefresh.Rate(60000,1001)-59.94005994)<.000001,"display cadence preserves a fractional 59.94 Hz refresh rate");
+Check(DisplayRefresh.Rate(144,1)==144&&DisplayRefresh.Rate(240,1)==240,"high-refresh monitors are not capped at 60 Hz");
+Check(DisplayRefresh.Rate(60,0)==0&&DisplayRefresh.Rate(0,1)==0,"invalid display timings do not create an unbounded frame loop");
+bool Throws<T>(Action action) where T:Exception
+{
+    try { action(); return false; }
+    catch(T) { return true; }
+}
+var missingTask=Marshal.GetExceptionForHR(unchecked((int)0x80070002))!;
+Check(missingTask is FileNotFoundException,"Windows maps a missing scheduled task to FileNotFoundException rather than COMException");
+Check(!AutoFollow.ReadEnabled(()=>throw missingTask,()=>false),"first launch without an AutoFollow task stays disabled and does not crash");
+Check(!AutoFollow.ReadEnabled(()=>throw new COMException("missing",unchecked((int)0x80070002)),()=>false),"missing task also supports the COMException representation");
+Check(AutoFollow.ReadEnabled(()=>throw missingTask,()=>true),"missing scheduled task preserves legacy current-user startup status");
+Check(AutoFollow.ReadEnabled(()=>true,()=>throw new Exception("legacy lookup should be skipped")),"enabled task does not depend on the legacy registry entry");
+Check(!AutoFollow.ReadEnabled(()=>false,()=>false),"disabled or absent startup registrations remain disabled");
+Check(AutoFollow.ReadEnabled(()=>throw new UnauthorizedAccessException(),()=>true),"scheduler read access failure can fall back to legacy startup");
+Check(!AutoFollow.ReadEnabled(()=>throw new COMException("scheduler unavailable"),()=>throw new System.Security.SecurityException()),"unavailable optional startup backends cannot crash the tray menu");
+var deleted=false;
+AutoFollow.DeleteTaskIfPresent(()=>deleted=true);
+Check(deleted,"existing startup tasks are still deleted");
+AutoFollow.DeleteTaskIfPresent(()=>throw missingTask);
+AutoFollow.DeleteTaskIfPresent(()=>throw new COMException("missing",unchecked((int)0x80070002)));
+Check(true,"disabling an already absent task succeeds for both exception representations");
+Check(Throws<UnauthorizedAccessException>(()=>AutoFollow.DeleteTaskIfPresent(()=>throw new UnauthorizedAccessException())),"startup deletion permission failures are reported rather than silently ignored");
+Check(Throws<COMException>(()=>AutoFollow.DeleteTaskIfPresent(()=>throw new COMException("access denied",unchecked((int)0x80070005)))),"startup deletion only ignores the task-not-found HRESULT");
 using var json = JsonDocument.Parse("""{"rateLimits":{"primary":{"usedPercent":90,"windowDurationMins":300,"resetsAt":2000000000}},"rateLimitsByLimitId":{"codex":{"primary":{"usedPercent":12,"windowDurationMins":300,"resetsAt":2000000000},"secondary":{"usedPercent":30,"windowDurationMins":10080,"resetsAt":2000000001}}}}""");
 var quota = QuotaClient.ParseResult(json.RootElement)!;
 Check(quota.FiveHour?.Remaining == 88 && quota.Weekly?.Remaining == 70, "multi-bucket precedence and remaining percent");
@@ -21,12 +47,62 @@ Check(Startup("Command")==@"D:\Meter & tools\CodexMeter.exe"&&Startup("WorkingDi
 Check(Startup("LogonTrigger") is not null&&Startup("LogonType")=="InteractiveToken"&&Startup("RunLevel")=="LeastPrivilege","independent Windows startup uses the interactive current user without elevation or a password");
 Check(Startup("MultipleInstancesPolicy")=="IgnoreNew"&&Startup("ExecutionTimeLimit")=="PT0S"&&Startup("StopIfGoingOnBatteries")=="false","startup task does not duplicate, expire after three days or stop on battery power");
 
-var layout = HostWindow.DockBounds(new(100, 200, 1600, 900), new Size(517,86), 96);
-Check(layout.Height == 86 && layout.Right == 1688 && layout.Bottom == 1088, "two-row overlay keeps a fixed 12px right/bottom margin");
-var moved = HostWindow.DockBounds(new(300, 250, 1600, 900), new Size(517,86), 96);
-Check(moved.X - layout.X == 200 && moved.Y - layout.Y == 50, "host move preserves bottom-right attachment");
-var resized = HostWindow.DockBounds(new(100, 200, 1800, 1000), new Size(517,86), 96);
-Check(resized.X - layout.X == 200 && resized.Y - layout.Y == 100, "host resize follows right and bottom edges");
+foreach(var dpi in new uint[]{96,120,144,192})
+{
+    var available=new Rectangle(-1500,100,1366,728);
+    var bottom=available.Bottom-34;
+    var vertical=WindowLayout.Overlay(available,dpi,false,bottom);
+    var quotaOnly=WindowLayout.Overlay(available,dpi,true,bottom);
+    Check(!vertical.IsEmpty&&available.Contains(vertical)&&vertical.Height>vertical.Width,$"vertical overlay fits a laptop viewport at {dpi} DPI");
+    Check(vertical.Bottom==bottom&&quotaOnly.Bottom==bottom&&vertical.Right==quotaOnly.Right,$"both overlay modes preserve the composer bottom and right anchor at {dpi} DPI");
+    Check(available.Right-vertical.Right>=24*dpi/96,$"overlay reserves scrollbar and resize clearance at {dpi} DPI");
+    var shifted=WindowLayout.Overlay(new(available.X+200,available.Y+50,available.Width,available.Height),dpi,false,bottom+50);
+    Check(shifted.X-vertical.X==200&&shifted.Y-vertical.Y==50,$"moving a host across negative monitor coordinates preserves attachment at {dpi} DPI");
+    foreach(var percent in new[]{67,85,100})
+    {
+        var frame=new Size((int)(16*dpi/96),(int)(39*dpi/96));
+        var panel=WindowLayout.Panel(available,dpi,percent,frame);
+        Check(panel.ClientSize.Width+frame.Width<=available.Width&&panel.ClientSize.Height+frame.Height<=available.Height*.72+1,$"panel {percent}% respects laptop space and native frame at {dpi} DPI");
+        var outer=new Size(panel.ClientSize.Width+frame.Width,panel.ClientSize.Height+frame.Height);
+        var corner=WindowLayout.PanelCorner(available,outer,dpi);
+        Check(available.Contains(corner)&&corner.Right==available.Right&&corner.Bottom==available.Bottom,$"panel {percent}% touches the right screen edge and taskbar boundary within the work area at {dpi} DPI");
+        var border=(int)Math.Round(7*dpi/96f);var insets=new Padding(border,0,border,border);
+        var nativeCorner=WindowLayout.PanelCorner(available,outer,dpi,insets);
+        var visibleCorner=Rectangle.FromLTRB(nativeCorner.Left+insets.Left,nativeCorner.Top+insets.Top,nativeCorner.Right-insets.Right,nativeCorner.Bottom-insets.Bottom);
+        Check(available.Contains(visibleCorner)&&visibleCorner.Right==available.Right&&visibleCorner.Bottom==available.Bottom,$"panel {percent}% removes the invisible DWM border gap without clipping visible content at {dpi} DPI");
+    }
+}
+var desktopPanel=WindowLayout.Panel(new(0,0,1920,1040),96,100,new(16,39));
+var laptopPanel=WindowLayout.Panel(new(0,0,1366,728),144,100,new(24,59));
+Check(desktopPanel.Level==2&&laptopPanel.Level<desktopPanel.Level,"100% switches to a smaller layout on a high-DPI laptop instead of growing off screen");
+var offscreen=new Rectangle(1900,1000,376,523);
+Check(new Rectangle(0,0,1920,1040).Contains(WindowLayout.Clamp(offscreen,new(0,0,1920,1040))),"panel placement includes the native frame and remains fully on screen");
+Check(WindowLayout.Overlay(new(0,0,120,100),192,false,90).IsEmpty,"small hosts hide the fixed-size overlay instead of shrinking it");
+
+foreach(var dpi in new uint[]{96,120,144,192})
+{
+    var scale=dpi/96f;
+    Rectangle Pixels(int x,int y,int width,int height)=>new((int)Math.Round(x*scale),(int)Math.Round(y*scale),(int)Math.Round(width*scale),(int)Math.Round(height*scale));
+    var normal=Pixels(0,0,1280,820);var editor=new ComposerGeometry(Pixels(430,570,738,230),true);
+    var start=WindowLayout.PlaceOverlay(normal,dpi,false,editor);
+    var conversation=WindowLayout.PlaceOverlay(normal,dpi,true,editor);
+    Check(start.QuotaOnly&&conversation.QuotaOnly,$"start and default-width conversation use only two quotas at {dpi} DPI");
+    Check(start.Bounds.Height>start.Bounds.Width*2&&conversation.Bounds.Height>conversation.Bounds.Width*2,$"quota-only windows use the tall shape for 90-degree vertical tracks at {dpi} DPI");
+    Check(!conversation.Bounds.IntersectsWith(editor.Bounds)&&conversation.Bounds.Bottom==editor.Bounds.Bottom,$"compact quotas fit the right gutter without blocking input or its controls at {dpi} DPI");
+    var wide=WindowLayout.PlaceOverlay(Pixels(0,0,1540,820),dpi,true,editor);
+    Check(!wide.QuotaOnly&&!wide.Bounds.IntersectsWith(editor.Bounds),$"widening into a summary-side layout restores metrics outside the editor at {dpi} DPI");
+    var resized=WindowLayout.PlaceOverlay(Pixels(0,0,1540,820),dpi,true,editor with{MatchesSize=false});
+    Check(resized.Bounds.IsEmpty,$"resize hides until the input geometry is confirmed, without relocating upward at {dpi} DPI");
+    var noGap=new ComposerGeometry(Pixels(430,570,830,230),true);
+    var hidden=WindowLayout.PlaceOverlay(normal,dpi,true,noGap);
+    Check(hidden.Bounds.IsEmpty,$"a full-width editor hides quotas instead of moving them above the input at {dpi} DPI");
+    var quotaSize=new Size((int)Math.Round(WindowLayout.QuotaWidth*scale),(int)Math.Round(WindowLayout.QuotaHeight*scale));
+    Check(conversation.Bounds.Size==quotaSize,$"the compact overlay keeps its approved size at {dpi} DPI");
+    var shortArea=Pixels(0,0,1280,150);
+    Check(WindowLayout.PlaceOverlay(shortArea,dpi,false,new(Pixels(430,30,738,100),true)).Bounds.IsEmpty,$"insufficient vertical space hides instead of scaling down at {dpi} DPI");
+    Check(WindowLayout.PlaceOverlay(Pixels(0,0,1540,820),dpi,false,editor).QuotaOnly,$"wide new-chat pages do not display another conversation's metrics at {dpi} DPI");
+}
+Check(WindowLayout.PlaceOverlay(new(0,0,1280,820),96,true,null).Bounds.IsEmpty,"unknown editor geometry stays hidden instead of falling back to the header");
 
 JsonElement Element(object p) => JsonSerializer.SerializeToElement(p);
 var partialTps = new VisibleTps();
@@ -56,7 +132,8 @@ Check(fresh.RecentTps == 53.2, "recent reliable output sample remains visible");
 var brief=fresh with { TpsTokens=150,TpsMilliseconds=784,Tps=150000d/784 };
 Check(brief.TpsShort && brief.TpsCompact.StartsWith("短"),"short TPS is visibly marked instead of being presented as sustained speed");
 Check(Theme.RemainingColor(80) == Theme.Miku && Theme.RemainingColor(0) == Theme.Low, "quota color is Miku teal with capacity and red when exhausted");
-Check(!HostWindow.CanFit(new(0,0,400,400),new(517,86),96), "narrow hosts hide the overlay instead of shrinking its font");
+var narrowOverlay=WindowLayout.Overlay(new(0,0,400,400),144,false,380);
+Check(!narrowOverlay.IsEmpty&&new Rectangle(0,0,400,400).Contains(narrowOverlay),"vertical overlay remains usable in a narrow host that could not fit the old horizontal strip");
 
 var costJson=Element(new { input_tokens=100000,cached_input_tokens=50000,cache_write_input_tokens=10000,output_tokens=10000,reasoning_output_tokens=5000 });
 Check(ApiRate.Cost("gpt-6.1-sol",costJson)==.21m,"API cost separates cached reads/writes and does not charge reasoning twice");
