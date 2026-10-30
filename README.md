@@ -14,9 +14,11 @@
 
 ## 界面与操作
 
-![Miku 主题托盘面板](assets/screenshots/panel-miku.png)
+![双额度条](assets/screenshots/quota-only.png)
 
 ![白色悬浮窗](assets/screenshots/overlay.png)
+
+![Miku 主题托盘面板](assets/screenshots/panel-miku.png)
 
 - **悬浮窗**：固定在输入框右侧、底部对齐。空间充足时显示完整指标，较窄时显示双竖条额度；放不下时隐藏。
 - **拖动面板**：在工作区横向拖动时暂时收起悬浮窗，松手后重新定位，减少遮挡。Codex 窗口整体移动仍正常跟随。
