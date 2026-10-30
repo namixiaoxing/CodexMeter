@@ -1,54 +1,41 @@
-# 启动报错修复与重新发布
+# 常见问题
 
-## 0.5.5 的首次运行错误
+## 提示缺少 .NET
 
-表现：双击后出现 Microsoft .NET 弹窗，提示“系统找不到指定的文件。 (0x80070002)”，托盘或悬浮栏未出现。
+安装 [.NET 8 Desktop Runtime x64](https://dotnet.microsoft.com/download/dotnet/8.0)。仅安装普通 Runtime、ASP.NET Core Runtime 或 x86 版本不能满足依赖。
 
-原因：创建托盘右键菜单时，程序会读取当前用户的 `CodexMeter.AutoFollow-<SID>` 计划任务，以确定“登录后自动跟随 Codex”是否勾选。开发电脑上已存在这个任务，另一台电脑首次运行时通常不存在。Windows 的 COM 互操作会把 `0x80070002` 映射为 `System.IO.FileNotFoundException`；0.5.5 只捕获了 `COMException`，异常便会中断初始化。
+## 首次运行提示 `0x80070002`
 
-这里缺少的是可选的计划任务，不是发布包里的程序文件。安装 SDK、以管理员身份运行或反复解压都不能修复这段异常处理逻辑。
+升级到最新版。0.5.5 在自动跟随任务尚不存在时可能报错，该问题已修复；不需要先创建任务或以管理员身份运行。
 
-## 在使用电脑上解决
+## 没有托盘图标或悬浮窗
 
-1. 关闭旧版的错误窗口和 CodexMeter；如果托盘仍在，从右键菜单选择“完全退出”。
-2. 将 0.5.9 或更新的 Windows x64 便携包解压到固定目录（已包含 0.5.6 的首次启动修复）。
-3. 保持 Codex 桌面窗口打开，运行新目录的 `dist\CodexMeter.exe`。约两秒后初始化托盘和悬浮栏；切到其他应用时悬浮栏会隐藏。
-4. 自动跟随属于可选功能，不需要先启用它才能运行程序。需要登录后跟随时，再在托盘菜单中勾选，或运行新目录的 `scripts\Enable-AutoFollow.ps1`。
+先打开 Codex 桌面端，等待约两秒，并检查系统托盘的折叠区。右键托盘确认“显示悬浮条”已启用。
 
-如果旧版本已经注册过自动启动任务，升级或移动目录后，使用新目录的启用脚本重新注册，以更新任务中的 exe 路径。偏好及本机校准数据保存在本地应用数据目录，无需删除。
+悬浮窗只在 Codex 活动窗口中显示。输入框右侧空间不足、边界尚未确认或正在横向拖动工作区时会暂时收起；可拉宽窗口或松开拖动后重试。
 
-如果弹窗明确要求安装 .NET，则另行安装 **.NET 8 Desktop Runtime x64**：
+## 重启后没有自动跟随
 
-- 官方下载页面：<https://dotnet.microsoft.com/download/dotnet/8.0>
-- `dotnet --list-runtimes` 应能列出 `Microsoft.WindowsDesktop.App 8.x`。
-- 只有 .NET Runtime、ASP.NET Core Runtime 或 x86 运行时不满足本程序的 Windows x64 桌面依赖。
+运行当前安装目录的 `scripts\Enable-AutoFollow.ps1`，重新注册并启动当前用户的跟随任务。移动程序目录后也需要执行此操作；失败原因保存在 `%LOCALAPPDATA%\CodexMeter\startup-error.txt`。
 
-## 在开发电脑上重新发布
+## 数值为空、变动或看起来偏高
 
-使用修复后的完整源码，或在原仓库应用本次补丁后执行以下步骤。需要 .NET 8 SDK；使用者电脑只需要 Desktop Runtime。
+- **额度未更新**：确认 Codex 已登录，在托盘菜单手动刷新；查询失败时会保留最近数据。
+- **上下文下降**：可能是对话自动压缩；累计输入输出和轮次按当前会话记录统计。
+- **只有额度**：当前页面可能尚无本机记录、标题重名或为远程会话。
+- **TPS 偏高或不变**：它是上一次最终回答的日志样本，短回答可能偏高；悬停查看样本时间与依据。
+- **美元估值变化**：估值随本机样本动态校准，并非固定套餐金额或官方余额。
 
-```powershell
-# 在仓库根目录执行；检查失败会停止打包。
-.\scripts\Package.ps1
+## 开发诊断
 
-# SDK 不在 PATH 时可指定路径：
-.\scripts\Package.ps1 -DotnetPath '<SDK目录>\dotnet.exe'
-```
+在程序目录运行相应命令：
 
-产物：
+| 参数 | 用途 |
+| --- | --- |
+| `--probe --online` | 检查会话识别和只读额度接口，生成 `probe.json`。 |
+| `--preview` | 用合成数字生成布局截图与报告。 |
+| `--attachment-check` | 用独立测试窗口检查锚点、模式切换与层级。 |
+| `--composer-check` | 检查拖动时收起及松手后重新定位。 |
+| `--follow-benchmark` | 用测试窗口检查跟随节奏与资源开销。 |
 
-- `artifacts\CodexMeter-v0.5.9-win-x64.zip`：使用者下载的便携包。
-- `artifacts\CodexMeter-v0.5.9-source.zip`：完整源码及构建、打包脚本，包含首次启动和新版布局修复。
-- `artifacts\SHA256SUMS.txt`：两个压缩包的校验值。
-
-检查修改后提交源码，创建 `v0.5.9` 标签和 GitHub Release，附上这三个产物。不要把开发目录、现有 dist、诊断输出或本机设置目录直接压缩上传；打包脚本会从独立构建目录按白名单生成发布文件。
-
-## 发布前验证
-
-- 自动化检查覆盖不存在的任务、两种异常表示、旧启动项回退，以及重复取消任务。权限不足等真正的删除失败仍应报告。
-- 在没有 `CodexMeter.AutoFollow-<SID>` 任务的 Windows 用户环境中，保持 Codex 打开并启动程序，确认不再弹出 .NET 错误，托盘及悬浮栏可以使用。
-- 运行便携包的 `scripts\Disable-AutoFollow.ps1`，任务已不存在时也应成功。该操作会取消本用户的自动跟随，因此不要在需要保留自动启动的环境中随意测试。
-- 可运行 `dist\CodexMeter.exe --probe --online` 进行只读额度诊断；输出的 `probe.json` 仅留在本机，不应作为发布附件。
-- 运行 `dist\CodexMeter.exe --preview`，检查合成数据预览和 `layout-preview.json` 中的笔记本、高 DPI、窄窗口布局。`--attachment-check` 在独立测试窗口中验证竖排尺寸、右侧间距、底部锚点、面板非置顶及失焦收起。
-
-0.5.9 使用共享的 .NET 8 桌面运行时，不包含开发电脑的账号、登录凭据或计划任务。
+诊断输出仅留在本机，不属于发布附件。分享前请检查是否包含对话 ID 或使用量等个人信息。
