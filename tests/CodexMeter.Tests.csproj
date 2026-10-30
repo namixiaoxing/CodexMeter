@@ -15,6 +15,7 @@
     <Compile Include="../src/VisibleTps.cs" Link="VisibleTps.cs"/>
     <Compile Include="../src/HostWindow.cs" Link="HostWindow.cs"/>
     <Compile Include="../src/WindowLayout.cs" Link="WindowLayout.cs"/>
+    <Compile Include="../src/PanelDragGuard.cs" Link="PanelDragGuard.cs"/>
     <Compile Include="../src/DisplayRefresh.cs" Link="DisplayRefresh.cs"/>
     <Compile Include="../src/Theme.cs" Link="Theme.cs"/>
     <Compile Include="../src/BudgetEstimate.cs" Link="BudgetEstimate.cs"/>

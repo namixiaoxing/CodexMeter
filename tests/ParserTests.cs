@@ -5,6 +5,15 @@ using System.Runtime.InteropServices;
 
 var count = 0;
 void Check(bool ok, string name) { if (!ok) throw new Exception(name); Console.WriteLine("PASS " + name); count++; }
+var dragHost=new Rectangle(100,100,1200,800);var dragEditor=new Rectangle(300,700,700,150);
+var guard=new PanelDragGuard();
+Check(!guard.Update(true,new(1100,400),dragHost,dragEditor,96)&&!guard.Suppressed,"pressing a panel divider alone leaves the overlay visible");
+Check(!guard.Update(true,new(1098,400),dragHost,dragEditor,96),"small pointer jitter does not hide the overlay");
+Check(guard.Update(true,new(1095,400),dragHost,dragEditor,96)&&guard.Suppressed,"horizontal panel drag suppresses the stale full overlay before geometry is sampled");
+Check(!guard.Update(true,new(1090,400),dragHost,dragEditor,96)&&guard.Suppressed,"drag suppression persists without repeated refreshes");
+Check(guard.Update(false,new(1090,400),dragHost,dragEditor,96)&&!guard.Suppressed,"releasing the divider requests a fresh placement");
+foreach(var start in new[]{new Point(1100,120),new Point(250,400),new Point(600,750),new Point(1400,400)})
+{guard.Update(true,start,dragHost,dragEditor,96);guard.Update(true,new(start.X-100,start.Y),dragHost,dragEditor,96);Check(!guard.Suppressed,"title bar, sidebar, editor or outside drag does not interrupt window following");guard.Update(false,start,dragHost,dragEditor,96);}
 Check(Math.Abs(DisplayRefresh.Rate(60000,1001)-59.94005994)<.000001,"display cadence preserves a fractional 59.94 Hz refresh rate");
 Check(DisplayRefresh.Rate(144,1)==144&&DisplayRefresh.Rate(240,1)==240,"high-refresh monitors are not capped at 60 Hz");
 Check(DisplayRefresh.Rate(60,0)==0&&DisplayRefresh.Rate(0,1)==0,"invalid display timings do not create an unbounded frame loop");
