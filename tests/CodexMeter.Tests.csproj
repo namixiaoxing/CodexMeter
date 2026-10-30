@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../src/Models.cs" Link="Models.cs"/>
+    <Compile Include="../src/SessionReader.cs" Link="SessionReader.cs"/>
+    <Compile Include="../src/ThreadSelection.cs" Link="ThreadSelection.cs"/>
+    <Compile Include="../src/StartupTaskXml.cs" Link="StartupTaskXml.cs"/>
+    <Compile Include="../src/TurnCounter.cs" Link="TurnCounter.cs"/>
+    <Compile Include="../src/QuotaClient.cs" Link="QuotaClient.cs"/>
+    <Compile Include="../src/VisibleTps.cs" Link="VisibleTps.cs"/>
+    <Compile Include="../src/HostWindow.cs" Link="HostWindow.cs"/>
+    <Compile Include="../src/Theme.cs" Link="Theme.cs"/>
+    <Compile Include="../src/BudgetEstimate.cs" Link="BudgetEstimate.cs"/>
+    <Compile Include="ParserTests.cs"/>
+  </ItemGroup>
+</Project>
