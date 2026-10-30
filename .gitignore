@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+dist/
+artifacts/
+*.zip
+*.user
+*.suo
+.vs/
+.env
+.env.*
+settings.json
+account-bindings.json
+probe.json
+startup-error.txt
+/scripts/probe-quota.cjs
