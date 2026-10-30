@@ -12,12 +12,12 @@ New-Item -ItemType Directory -Path $publish,(Join-Path $portable 'dist'),(Join-P
 
 & $DotnetPath run --project (Join-Path $projectRoot 'tests\CodexMeter.Tests.csproj') -c Release
 if ($LASTEXITCODE -ne 0) { throw 'Checks failed; nothing was packaged.' }
-& $DotnetPath publish $project -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true ('-p:PathMap=' + $projectRoot + '=/_/CodexMeter') -o $publish --nologo
+& $DotnetPath publish $project -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true ('-p:InformationalVersion=' + $version) -p:IncludeSourceRevisionInInformationalVersion=false ('-p:PathMap=' + $projectRoot + '=/_/CodexMeter') -o $publish --nologo
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed; nothing was packaged.' }
 
 # Copy a positive allowlist. Never copy an existing dist/, settings directory, or diagnostics.
 Copy-Item -LiteralPath (Join-Path $publish 'CodexMeter.exe') -Destination (Join-Path $portable 'dist')
-foreach ($name in @('README.md','THIRD-PARTY-NOTICES.txt','CHANGELOG.md')) {
+foreach ($name in @('README.md','THIRD-PARTY-NOTICES.txt','CHANGELOG.md','TROUBLESHOOTING.md','RELEASE-NOTES.md')) {
     Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $portable
     Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination $source
 }
