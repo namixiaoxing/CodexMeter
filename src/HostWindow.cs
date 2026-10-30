@@ -80,6 +80,8 @@ internal static class HostWindow
     public static IntPtr OwnerOf(IntPtr child) => GetWindow(child, 4);
     public static void ShowPassive(IntPtr child) => ShowWindow(child, 8);
     internal static IntPtr ForegroundHandle=>GetForegroundWindow();
+    internal static bool LeftButtonDown=>(GetAsyncKeyState(1)&0x8000)!=0;
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
     public static void Position(IntPtr h, Rectangle bounds) => SetWindowPos(h, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, 0x0010 | 0x0004 | 0x0200);
     public static void Move(IntPtr h,Point position)=>SetWindowPos(h,IntPtr.Zero,position.X,position.Y,0,0,0x0001|0x0010|0x0004|0x0200);
     public static Rectangle VisibleBounds(HostSurface host) => Rectangle.Intersect(host.Frame ?? host.Client, Screen.FromHandle(host.Handle).WorkingArea);

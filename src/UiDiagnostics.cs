@@ -3,6 +3,41 @@ namespace CodexMeter;
 
 internal static class UiDiagnostics
 {
+    public static void ComposerCheck()
+    {
+        using var fixture=new Form{ClientSize=new(1100,700),StartPosition=FormStartPosition.Manual,Location=new(60,70),ShowInTaskbar=false};
+        using var editor=new Panel{Bounds=new(60,570,700,110)};
+        using var send=new Button{Text="Send",Bounds=new(630,60,60,35)};
+        editor.Controls.Add(send);fixture.Controls.Add(editor);fixture.Show();
+        using var overlay=new OverlayForm(new Settings(),()=>{});
+        HostSurface Host()=>HostWindow.ReadSurface(fixture.Handle,(uint)Environment.ProcessId)!;
+        void Apply(){if(overlay.DockTo(Host())&&!overlay.Visible)overlay.Show();}
+        overlay.GeometryChanged+=Apply;
+        var deadline=Environment.TickCount64+8000;
+        while(overlay.ComposerBounds is null&&Environment.TickCount64<deadline){Apply();Application.DoEvents();Thread.Sleep(10);}
+        var initialized=overlay.ComposerBounds is not null&&!overlay.QuotaOnly;
+        var samples=new List<object>();var passed=initialized;
+        foreach(var width in new[]{870,970,700})
+        {
+            var host=Host();var origin=new Point(host.Client.Left+800,host.Client.Top+250);
+            overlay.UpdateDragState(true,origin);
+            var watch=System.Diagnostics.Stopwatch.StartNew();editor.Width=width;
+            overlay.UpdateDragState(true,new(origin.X-20,origin.Y));
+            var hiddenImmediately=!overlay.Visible&&!overlay.DockTo(Host());
+            var hideMilliseconds=watch.Elapsed.TotalMilliseconds;
+            watch.Restart();overlay.UpdateDragState(false,new(origin.X-20,origin.Y));
+            var editorRight=editor.RectangleToScreen(editor.ClientRectangle).Right;
+            bool Expected()=>overlay.ComposerBounds?.Right==editorRight&&(width==970?!overlay.Visible:overlay.Visible&&overlay.QuotaOnly==(width==870));
+            // Completion must refresh placement without waiting for the 150/750 ms periodic path.
+            while(!Expected()&&watch.ElapsedMilliseconds<2000){Application.DoEvents();Thread.Sleep(1);}
+            watch.Stop();
+            var success=hiddenImmediately&&hideMilliseconds<30&&Expected()&&watch.ElapsedMilliseconds<250;
+            samples.Add(new{editorWidth=width,hiddenImmediately,hideMilliseconds,recoverMilliseconds=watch.Elapsed.TotalMilliseconds,overlay.Visible,overlay.QuotaOnly,success});
+            passed&=success;
+        }
+        File.WriteAllText(Path.Combine(AppContext.BaseDirectory,"composer-check.json"),JsonSerializer.Serialize(new{initialized,passed,samples},new JsonSerializerOptions{WriteIndented=true}));
+        if(!passed)Environment.ExitCode=1;
+    }
     public static void FollowBenchmark()
     {
         SynchronizationContext.SetSynchronizationContext(new WindowsFormsSynchronizationContext());

@@ -31,6 +31,7 @@ internal static class Program
         TraceAttachment = args.Contains("--trace-attachment");
         if (args.Contains("--preview")) { UiDiagnostics.Preview(); return; }
         if (args.Contains("--attachment-check")) { UiDiagnostics.AttachmentCheck(); return; }
+        if (args.Contains("--composer-check")) { UiDiagnostics.ComposerCheck(); return; }
         if (args.Contains("--follow-benchmark")) { UiDiagnostics.FollowBenchmark(); return; }
         using var singleton = new Mutex(true, "Local\\CodexMeter", out var first);
         if (!first) return;
@@ -115,6 +116,10 @@ internal sealed class MeterContext : ApplicationContext
         titles = new(home);
         panel = new MeterPanel(settings, RefreshQuota, OpenBudget);
         overlay = new OverlayForm(settings, ShowPanel);
+        overlay.GeometryChanged+=()=>
+        {
+            if(!disposed&&host is {} current&&HostWindow.ReadSurface(current.Handle,current.Process) is {} latest)FollowHost(latest);
+        };
         icon = Ui.CreateIcon();
         var menu = new ContextMenuStrip();
         menu.Items.Add("打开指标面板", null, (_, _) => ShowPanel());
@@ -253,6 +258,7 @@ internal sealed class MeterContext : ApplicationContext
         host = surface;
         if (surface.Minimized || !surface.Visible) { HideForHost();if(!positionOnly)TraceHost(surface);return; }
         var active = HostWindow.IsForeground(surface, panel.Handle, overlay.Handle);
+        overlay.SetInteractionActive(active&&settings.ShowOverlay);
         overlay.SetQuotaOnly(currentSelection?.CanShowConversationMetrics(reader.SelectedThread)!=true);
         var fits = settings.ShowOverlay && overlay.DockTo(surface,!positionOnly);
         if (fits && active)
@@ -280,6 +286,7 @@ internal sealed class MeterContext : ApplicationContext
     }
     public void HideForHost()
     {
+        overlay.SetInteractionActive(false);
         overlay.Hide();
         panel.Hide();
     }

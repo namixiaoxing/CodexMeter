@@ -9,6 +9,12 @@ internal sealed class OverlayForm : Form
     private bool quotaRequested;
     private IntPtr owner;
     private readonly ComposerAnchor composer=new();
+    private readonly PanelDragGuard drag=new();
+    private readonly System.Windows.Forms.Timer interaction=new(){Interval=16};
+    private HostSurface? lastHost;
+    private int geometryUpdateQueued;
+    private bool leftWasDown;
+    public event Action? GeometryChanged;
     private readonly ToolTip tip=new(){AutoPopDelay=12000};
     public bool QuotaOnly{get;private set;}
     public string Alignment{get;private set;}="底部边距";
@@ -27,12 +33,47 @@ internal sealed class OverlayForm : Form
         BackColor=Color.White;FormBorderStyle=FormBorderStyle.None;ShowInTaskbar=false;TopMost=false;
         AutoScaleMode=AutoScaleMode.None;StartPosition=FormStartPosition.Manual;DoubleBuffered=true;
         ClientSize=DesiredSize(96);
+        composer.Changed+=QueueGeometryUpdate;
+        interaction.Tick+=(_,_)=>
+        {
+            var down=HostWindow.LeftButtonDown;
+            // One cheap button-state check while idle; geometry is only refreshed after a drag.
+            if(!down&&!leftWasDown)return;
+            leftWasDown=down;
+            if(lastHost is {} host)UpdateDragState(down&&HostWindow.IsForeground(host,Handle),Cursor.Position);
+        };
         MouseClick+=(_,e)=>{if(e.Button==MouseButtons.Left)open();};
+    }
+    public void SetInteractionActive(bool active)
+    {
+        interaction.Enabled=active;
+        if(!active&&lastHost is {} host)
+        {
+            leftWasDown=false;
+            if(drag.Update(false,Point.Empty,host.Client,ComposerBounds,host.Dpi))composer.Refresh();
+        }
     }
     public static Size DesiredSize(uint dpi,bool quotaOnly=false)=>new((int)Math.Round((quotaOnly?WindowLayout.QuotaWidth:WindowLayout.OverlayWidth)*dpi/96f),(int)Math.Round((quotaOnly?WindowLayout.QuotaHeight:WindowLayout.OverlayHeight)*dpi/96f));
     protected override bool ShowWithoutActivation=>true;
     protected override CreateParams CreateParams{get{var p=base.CreateParams;p.ExStyle|=0x08000000|0x00000080;return p;}}
-    public bool DockTo(HostSurface host,bool requestMeasurement=true)=>DockTo(host,composer.ReadBounds(host,requestMeasurement));
+    private void QueueGeometryUpdate()
+    {
+        if(IsDisposed||!IsHandleCreated||Interlocked.Exchange(ref geometryUpdateQueued,1)!=0)return;
+        try { BeginInvoke((Action)(()=>{Interlocked.Exchange(ref geometryUpdateQueued,0);if(!IsDisposed)GeometryChanged?.Invoke();})); }
+        catch(InvalidOperationException) { Interlocked.Exchange(ref geometryUpdateQueued,0); }
+    }
+    internal void UpdateDragState(bool down,Point cursor)
+    {
+        if(lastHost is not {} host||!drag.Update(down,cursor,host.Client,ComposerBounds,host.Dpi))return;
+        if(drag.Suppressed){PlacementReason="面板拖动中，暂时收起";Hide();}
+        else {composer.Refresh();GeometryChanged?.Invoke();}
+    }
+    public bool DockTo(HostSurface host,bool requestMeasurement=true)
+    {
+        lastHost=host;
+        if(drag.Suppressed){Hide();return false;}
+        return DockTo(host,composer.ReadBounds(host,requestMeasurement));
+    }
     internal bool DockTo(HostSurface host,ComposerGeometry? geometry)
     {
         var placement=WindowLayout.PlaceOverlay(HostWindow.VisibleBounds(host),host.Dpi,!quotaRequested,geometry);
@@ -118,5 +159,5 @@ internal sealed class OverlayForm : Form
         Label("↑ 输出",167);Value(token is null?"—":Display.Compact(token.Output),167,Color.FromArgb(139,92,246));
         Label("TPS",192);Value(token?.RecentTps is {} speed?$"{speed:0.0} t/s":"— t/s",192,Ui.Blue);
     }
-    protected override void Dispose(bool disposing){if(disposing)tip.Dispose();base.Dispose(disposing);}
+    protected override void Dispose(bool disposing){if(disposing){interaction.Dispose();composer.Changed-=QueueGeometryUpdate;tip.Dispose();}base.Dispose(disposing);}
 }

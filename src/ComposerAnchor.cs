@@ -16,6 +16,12 @@ internal sealed class ComposerAnchor
     private IntPtr cachedHost;
     private double cachedPadding;
     private bool releasedInitialTree;
+    private long revision;
+    public event Action? Changed;
+    public void Refresh()
+    {
+        lock(sync){revision++;result=null;next=settledAt=DateTime.MinValue;}
+    }
     public ComposerGeometry? ReadBounds(HostSurface host,bool requestMeasurement=true)
     {
         lock(sync)
@@ -52,6 +58,7 @@ internal sealed class ComposerAnchor
     }
     private void Read(HostSurface host)
     {
+        long generation;lock(sync)generation=revision;
         try
         {
             var current=HostWindow.ReadSurface(host.Handle,host.Process);
@@ -61,7 +68,14 @@ internal sealed class ComposerAnchor
             {
                 var after=HostWindow.ReadSurface(host.Handle,host.Process);
                 if(after is null||after.Client!=host.Client||after.Dpi!=host.Dpi)return;
-                lock(sync)result=bounds is {} measured?(host.Handle,host.Client,host.Dpi,measured,DateTime.UtcNow):null;
+                bool changed;
+                lock(sync)
+                {
+                    if(generation!=revision)return;
+                    changed=bounds is {} box?result is not {} old||old.Handle!=host.Handle||old.Host!=host.Client||old.Dpi!=host.Dpi||old.Bounds!=box:result is not null;
+                    result=bounds is {} measured?(host.Handle,host.Client,host.Dpi,measured,DateTime.UtcNow):null;
+                }
+                if(changed)Changed?.Invoke();
             }
             if(cached is not null && cachedHost==host.Handle)
             {
